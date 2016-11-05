@@ -1,0 +1,8 @@
+#!/bin/sh
+
+cp omnia-led-colors /usr/sbin
+chmod 755 /usr/sbin/omnia-led-colors
+cp omnia-led-colors.init.d /etc/init.d/omnia-led-colors
+chmod 755 /etc/init.d/omnia-led-colors
+/etc/init.d/omnia-led-colors enable
+/etc/init.d/omnia-led-colors start

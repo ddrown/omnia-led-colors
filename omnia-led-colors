@@ -1,0 +1,133 @@
+#!/usr/bin/lua
+
+-- settings start here
+
+-- the maximum bandwidth numbers to use to calculate 100%, in bits per second
+local in_limit = 300000000 -- wan in/download speed
+local out_limit = 20000000 -- wan out/upload speed
+
+-- which LED to use as the wan in/download speed indicator, recommendation: "wan"
+local in_led_name = "wan"
+
+-- which LED to use as the wan out/upload speed indicator, possible choices: "lan0" .. "lan4", "pci1".."pci3", "user1", "user2"
+local out_led_name = "lan0"
+
+-- which interface to measure, eth1 = default WAN interface
+local wan_interface = "eth1"
+
+-- wifi settings
+local wifi_interface = "wlan1"
+local wifi_led_name = "pci3"
+
+-- settings end here
+
+require "nixio"
+
+local last_bytes_in, last_bytes_out
+function wan_led()
+  local devfd = io.open("/proc/net/dev", "r")
+
+  for line in devfd:lines() do
+    local bytes_in, pkt_in, bytes_out, pkt_out
+    local pat = wan_interface..":%s*(%d+)%s+(%d+)%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+(%d+)%s+(%d+)%s+"
+    _, _, bytes_in, pkt_in, bytes_out, pkt_out = string.find(line, pat)
+
+    if bytes_in ~= nil then
+      if last_bytes_in ~= nil then
+        local bps_in = (bytes_in - last_bytes_in)*8
+        local bps_out = (bytes_out - last_bytes_out)*8
+
+        local pct_in = bps_in / in_limit
+        local pct_out = bps_out / out_limit
+
+        -- 0% = green, 50% = yellow, 100% = red
+        local green_in = math.floor(math.max(1-pct_in,0)*255)
+        local red_in = math.min(math.floor(pct_in*255),255)
+
+        -- 0% = green, 50% = yellow, 100% = red
+        local green_out = math.floor(math.max(1-pct_out,0)*255)
+        local red_out = math.min(math.floor(pct_out*255),255)
+
+        -- for debugging
+        --print(bps_in .. " (" .. math.floor(pct_in*100) .. "% "..red_in.." "..green_in .." 0) " .. bps_out .. " (" .. math.floor(pct_out*100) .. "% "..red_out.." "..green_out.." 0)")
+
+        local infd = io.open("/sys/class/leds/omnia-led\:"..in_led_name.."/color", "w")
+        infd:write(red_in.." "..green_in .." 0")
+        infd:close()
+
+        local outfd = io.open("/sys/class/leds/omnia-led\:"..out_led_name.."/color", "w")
+        outfd:write(red_out.." "..green_out .." 0")
+        outfd:close()
+      end
+      last_bytes_in = bytes_in
+      last_bytes_out = bytes_out
+    end
+  end
+  devfd:close()
+end
+
+local last_active, last_busy, last_recv, last_tx
+function wifi_led()
+  local this_active, this_busy, this_recv, this_tx, this_noise
+  this_noise = "?" -- when you first tune to a channel, the noise level isn't filled in yet
+
+  local wlan_survey = io.popen("iw dev "..wifi_interface.." survey dump")
+
+  local in_freq_use = 0
+  for line in wlan_survey:lines() do
+    if string.find(line, '%[in use%]') ~= nil then
+      in_freq_use = 1
+    elseif string.find(line, "Survey data from ") ~= nil then
+      in_freq_use = 0
+    end
+
+    if in_freq_use == 1 then
+      local start_match, end_match, type, ms = string.find(line, "channel (%S+) time:%s+(%d+) ms")
+      if type ~= nil then
+        if type == "active" then
+          this_active = ms
+        elseif type == "busy" then
+          this_busy = ms
+        elseif type == "receive" then
+          this_recv = ms
+        elseif type == "transmit" then
+          this_tx = ms
+        end
+      end
+
+      local start_match, end_match, noise = string.find(line, "noise:%s+(-?%d+) dBm")
+      if noise ~= nil then
+        this_noise = noise
+      end
+    end
+  end
+  wlan_survey:close()
+
+  if (last_active ~= nil) and (this_active ~= nil) then
+    local total_time = this_active - last_active
+    local busy_time = this_busy - last_busy
+
+    local pct_busy = busy_time/total_time
+
+    -- 0% = green, 50% = yellow, 100% = red
+    local green = math.floor(math.max(1-pct_busy,0)*255)
+    local red = math.min(math.floor(pct_busy*255),255)
+
+    -- for debugging
+    --print("busy "..busy_time.."ms total "..total_time.."ms "..math.floor(pct_busy*100).."% ("..red.." "..green.." 0)")
+
+    local wififd = io.open("/sys/class/leds/omnia-led\:"..wifi_led_name.."/color", "w")
+    wififd:write(red.." "..green .." 0")
+    wififd:close()
+  end
+
+  last_active, last_busy, last_recv, last_tx = this_active, this_busy, this_recv, this_tx
+end
+
+while true do
+  wan_led()
+  wifi_led()
+
+  -- sleep for 1 second
+  nixio.nanosleep(1)
+end
