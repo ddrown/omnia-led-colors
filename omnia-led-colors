@@ -15,15 +15,19 @@ local out_led_name = "lan0"
 -- which interface to measure, eth1 = default WAN interface
 local wan_interface = "eth1"
 
--- wifi settings
-local wifi_interface = "wlan1"
-local wifi_led_name = "pci3"
+-- wifi/ath9k settings
+local ath9k_interface = "wlan1"
+local ath9k_led_name = "pci3"
+
+-- wifi/ath10k settings
+local ath10k_phy = "phy0"
+local ath10k_led_name = "pci2"
 
 -- settings end here
 
 require "nixio"
 
-local last_bytes_in, last_bytes_out
+local wan_last_bytes_in, wan_last_bytes_out
 function wan_led()
   local devfd = io.open("/proc/net/dev", "r")
 
@@ -33,45 +37,45 @@ function wan_led()
     _, _, bytes_in, pkt_in, bytes_out, pkt_out = string.find(line, pat)
 
     if bytes_in ~= nil then
-      if last_bytes_in ~= nil then
-        local bps_in = (bytes_in - last_bytes_in)*8
-        local bps_out = (bytes_out - last_bytes_out)*8
+      if wan_last_bytes_in ~= nil then
+        local bps_in = (bytes_in - wan_last_bytes_in)*8
+        local bps_out = (bytes_out - wan_last_bytes_out)*8
 
-        local pct_in = bps_in / in_limit
-        local pct_out = bps_out / out_limit
-
-        -- 0% = green, 50% = yellow, 100% = red
-        local green_in = math.floor(math.max(1-pct_in,0)*255)
-        local red_in = math.min(math.floor(pct_in*255),255)
+	local pct_in = bps_in / in_limit
+	local pct_out = bps_out / out_limit
 
         -- 0% = green, 50% = yellow, 100% = red
-        local green_out = math.floor(math.max(1-pct_out,0)*255)
-        local red_out = math.min(math.floor(pct_out*255),255)
+	local green_in = math.floor(math.max(1-pct_in,0)*255)
+	local red_in = math.min(math.floor(pct_in*255),255)
+
+        -- 0% = green, 50% = yellow, 100% = red
+	local green_out = math.floor(math.max(1-pct_out,0)*255)
+	local red_out = math.min(math.floor(pct_out*255),255)
 
         -- for debugging
         --print(bps_in .. " (" .. math.floor(pct_in*100) .. "% "..red_in.." "..green_in .." 0) " .. bps_out .. " (" .. math.floor(pct_out*100) .. "% "..red_out.." "..green_out.." 0)")
 
-        local infd = io.open("/sys/class/leds/omnia-led\:"..in_led_name.."/color", "w")
-        infd:write(red_in.." "..green_in .." 0")
-        infd:close()
+	local infd = io.open("/sys/class/leds/omnia-led\:"..in_led_name.."/color", "w")
+	infd:write(red_in.." "..green_in .." 0")
+	infd:close()
 
-        local outfd = io.open("/sys/class/leds/omnia-led\:"..out_led_name.."/color", "w")
-        outfd:write(red_out.." "..green_out .." 0")
-        outfd:close()
+	local outfd = io.open("/sys/class/leds/omnia-led\:"..out_led_name.."/color", "w")
+	outfd:write(red_out.." "..green_out .." 0")
+	outfd:close()
       end
-      last_bytes_in = bytes_in
-      last_bytes_out = bytes_out
+      wan_last_bytes_in = bytes_in
+      wan_last_bytes_out = bytes_out
     end
   end
   devfd:close()
 end
 
-local last_active, last_busy, last_recv, last_tx
-function wifi_led()
+local ath9k_last_active, ath9k_last_busy, ath9k_last_recv, ath9k_last_tx
+function ath9k_led()
   local this_active, this_busy, this_recv, this_tx, this_noise
   this_noise = "?" -- when you first tune to a channel, the noise level isn't filled in yet
 
-  local wlan_survey = io.popen("iw dev "..wifi_interface.." survey dump")
+  local wlan_survey = io.popen("iw dev "..ath9k_interface.." survey dump")
 
   local in_freq_use = 0
   for line in wlan_survey:lines() do
@@ -103,10 +107,10 @@ function wifi_led()
   end
   wlan_survey:close()
 
-  if (last_active ~= nil) and (this_active ~= nil) then
-    local total_time = this_active - last_active
-    local busy_time = this_busy - last_busy
-
+  if (ath9k_last_active ~= nil) and (this_active ~= nil) then
+    local total_time = this_active - ath9k_last_active
+    local busy_time = this_busy - ath9k_last_busy
+    
     local pct_busy = busy_time/total_time
 
     -- 0% = green, 50% = yellow, 100% = red
@@ -116,18 +120,68 @@ function wifi_led()
     -- for debugging
     --print("busy "..busy_time.."ms total "..total_time.."ms "..math.floor(pct_busy*100).."% ("..red.." "..green.." 0)")
 
-    local wififd = io.open("/sys/class/leds/omnia-led\:"..wifi_led_name.."/color", "w")
+    local wififd = io.open("/sys/class/leds/omnia-led\:"..ath9k_led_name.."/color", "w")
     wififd:write(red.." "..green .." 0")
     wififd:close()
   end
 
-  last_active, last_busy, last_recv, last_tx = this_active, this_busy, this_recv, this_tx
+  ath9k_last_active, ath9k_last_busy, ath9k_last_recv, ath9k_last_tx = this_active, this_busy, this_recv, this_tx
+end
+
+local ath10k_last_cycle, ath10k_last_rx_clear
+function ath10k_led()
+  local this_cycle, this_rx_clear
+
+  local fw_stats = io.open("/sys/kernel/debug/ieee80211/"..ath10k_phy.."/ath10k/fw_stats","r")
+  if fw_stats == nil then
+    return
+  end
+
+  for line in fw_stats:lines() do
+    local start_match, end_match, type, count = string.find(line, "^%s+(%S.*%S) count%s+(%d+)")
+    if type ~= nil then
+      if type == "RX clear" then -- "RX clear" they mean "channel busy"
+        this_rx_clear = count
+      elseif type == "Cycle" then
+        this_cycle = count
+      end
+    end
+  end
+  fw_stats:close()
+
+  if ath10k_last_cycle ~= nil then
+    local cdiff, cleardiff
+    if this_cycle < ath10k_last_cycle then -- cycle wrap
+      cdiff = this_cycle - ath10k_last_cycle + 2^31
+      -- all the cycle counters get divided by 2 on cycle wrap for some reason
+      -- this happens at some point in the past, so *2 isn't exactly right
+      cleardiff = this_rx_clear*2 - ath10k_last_rx_clear
+    else
+      cdiff = this_cycle - ath10k_last_cycle
+      cleardiff = this_rx_clear - ath10k_last_rx_clear
+    end
+    local clearpct = cleardiff / cdiff
+    -- for debugging
+    --print("cycle "..this_cycle.." "..cdiff.." busy "..math.floor(clearpct*100).."%")
+
+    -- 0% = green, 50% = yellow, 100% = red
+    local green = math.floor(math.max(1-clearpct,0)*255)
+    local red = math.min(math.floor(clearpct*255),255)
+
+    local wififd = io.open("/sys/class/leds/omnia-led\:"..ath10k_led_name.."/color", "w")
+    wififd:write(red.." "..green .." 0")
+    wififd:close()
+  end
+
+  ath10k_last_cycle, ath10k_last_rx_clear = this_cycle, this_rx_clear
 end
 
 while true do
   wan_led()
-  wifi_led()
+  ath9k_led()
+  ath10k_led()
 
   -- sleep for 1 second
   nixio.nanosleep(1)
 end
+
