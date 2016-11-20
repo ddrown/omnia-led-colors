@@ -6,11 +6,8 @@
 local in_limit = 300000000 -- wan in/download speed
 local out_limit = 20000000 -- wan out/upload speed
 
--- which LED to use as the wan in/download speed indicator, recommendation: "wan"
-local in_led_name = "wan"
-
--- which LED to use as the wan out/upload speed indicator, possible choices: "lan0" .. "lan4", "pci1".."pci3", "user1", "user2"
-local out_led_name = "lan0"
+-- which LED to use as the wan download/upload speed indicator, recommendation: "wan"
+local in_out_led_name = "wan"
 
 -- which interface to measure, eth1 = default WAN interface
 local wan_interface = "eth1"
@@ -41,27 +38,20 @@ function wan_led()
         local bps_in = (bytes_in - wan_last_bytes_in)*8
         local bps_out = (bytes_out - wan_last_bytes_out)*8
 
-	local pct_in = bps_in / in_limit
-	local pct_out = bps_out / out_limit
+        local pct_in = bps_in / in_limit
+        local pct_out = bps_out / out_limit
 
         -- 0% = green, 50% = yellow, 100% = red
-	local green_in = math.floor(math.max(1-pct_in,0)*255)
-	local red_in = math.min(math.floor(pct_in*255),255)
-
-        -- 0% = green, 50% = yellow, 100% = red
-	local green_out = math.floor(math.max(1-pct_out,0)*255)
-	local red_out = math.min(math.floor(pct_out*255),255)
+        local green = math.floor(math.max(1-math.max(pct_in,pct_out),0)*255)
+        local red = math.min(math.floor(pct_in*255),255)
+        local blue = math.min(math.floor(pct_out*255),255)
 
         -- for debugging
-        --print(bps_in .. " (" .. math.floor(pct_in*100) .. "% "..red_in.." "..green_in .." 0) " .. bps_out .. " (" .. math.floor(pct_out*100) .. "% "..red_out.." "..green_out.." 0)")
+        --print(pct_in.." "..pct_out..": "..red.." "..green.." "..blue)
 
-	local infd = io.open("/sys/class/leds/omnia-led\:"..in_led_name.."/color", "w")
-	infd:write(red_in.." "..green_in .." 0")
-	infd:close()
-
-	local outfd = io.open("/sys/class/leds/omnia-led\:"..out_led_name.."/color", "w")
-	outfd:write(red_out.." "..green_out .." 0")
-	outfd:close()
+        local inoutfd = io.open("/sys/class/leds/omnia-led\:"..in_out_led_name.."/color", "w")
+        inoutfd:write(red.." "..green.." "..blue)
+        inoutfd:close()
       end
       wan_last_bytes_in = bytes_in
       wan_last_bytes_out = bytes_out
@@ -110,7 +100,7 @@ function ath9k_led()
   if (ath9k_last_active ~= nil) and (this_active ~= nil) then
     local total_time = this_active - ath9k_last_active
     local busy_time = this_busy - ath9k_last_busy
-    
+
     local pct_busy = busy_time/total_time
 
     -- 0% = green, 50% = yellow, 100% = red
@@ -184,4 +174,3 @@ while true do
   -- sleep for 1 second
   nixio.nanosleep(1)
 end
-
