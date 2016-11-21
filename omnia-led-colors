@@ -1,79 +1,42 @@
 #!/usr/bin/lua
 
--- settings start here
+-- settings are now in /etc/config/omnia-led-colors
 
--- the maximum bandwidth numbers to use to calculate 100%, in bits per second
-local in_limit = 300000000 -- wan in/download speed
-local out_limit = 20000000 -- wan out/upload speed
-
--- which LED to use as the wan in/download speed indicator, recommendation: "wan"
-local in_led_name = "wan"
-
--- which LED to use as the wan out/upload speed indicator, possible choices: "lan0" .. "lan4", "pci1".."pci3", "user1", "user2"
-local out_led_name = "lan0"
-
--- which interface to measure, eth1 = default WAN interface
-local wan_interface = "eth1"
-
--- wifi/ath9k settings
-local ath9k_interface = "wlan1"
-local ath9k_led_name = "pci3"
-
--- wifi/ath10k settings
-local ath10k_phy = "phy0"
-local ath10k_led_name = "pci2"
-
--- settings end here
-
+local uci = require "luci.model.uci".cursor()
 require "nixio"
 
-local wan_last_bytes_in, wan_last_bytes_out
-function wan_led()
+local data = {wan={}, ath9k={}, ath10k={}}
+
+function debug_print(s)
+  -- uncomment this to print debug messages
+  --print(s)
+end
+
+function gather_iface_bandwidth()
   local devfd = io.open("/proc/net/dev", "r")
 
   for line in devfd:lines() do
     local bytes_in, pkt_in, bytes_out, pkt_out
-    local pat = wan_interface..":%s*(%d+)%s+(%d+)%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+(%d+)%s+(%d+)%s+"
-    _, _, bytes_in, pkt_in, bytes_out, pkt_out = string.find(line, pat)
+    local pat = "(%S+):%s*(%d+)%s+(%d+)%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+(%d+)%s+(%d+)%s+"
+    _, _, iface, bytes_in, pkt_in, bytes_out, pkt_out = string.find(line, pat)
 
     if bytes_in ~= nil then
-      if wan_last_bytes_in ~= nil then
-        local bps_in = (bytes_in - wan_last_bytes_in)*8
-        local bps_out = (bytes_out - wan_last_bytes_out)*8
-
-	local pct_in = bps_in / in_limit
-	local pct_out = bps_out / out_limit
-
-        -- 0% = green, 50% = yellow, 100% = red
-	local green_in = math.floor(math.max(1-pct_in,0)*255)
-	local red_in = math.min(math.floor(pct_in*255),255)
-
-        -- 0% = green, 50% = yellow, 100% = red
-	local green_out = math.floor(math.max(1-pct_out,0)*255)
-	local red_out = math.min(math.floor(pct_out*255),255)
-
-        -- for debugging
-        --print(bps_in .. " (" .. math.floor(pct_in*100) .. "% "..red_in.." "..green_in .." 0) " .. bps_out .. " (" .. math.floor(pct_out*100) .. "% "..red_out.." "..green_out.." 0)")
-
-	local infd = io.open("/sys/class/leds/omnia-led\:"..in_led_name.."/color", "w")
-	infd:write(red_in.." "..green_in .." 0")
-	infd:close()
-
-	local outfd = io.open("/sys/class/leds/omnia-led\:"..out_led_name.."/color", "w")
-	outfd:write(red_out.." "..green_out .." 0")
-	outfd:close()
+      last_data = data.wan[iface]
+      local this_data = {bytes_in=bytes_in, bytes_out=bytes_out}
+      if last_data ~= nil then
+        this_data.bps_in = (bytes_in - last_data.bytes_in)*8
+        this_data.bps_out = (bytes_out - last_data.bytes_out)*8
       end
-      wan_last_bytes_in = bytes_in
-      wan_last_bytes_out = bytes_out
+      data.wan[iface] = this_data
     end
   end
   devfd:close()
 end
 
-local ath9k_last_active, ath9k_last_busy, ath9k_last_recv, ath9k_last_tx
-function ath9k_led()
-  local this_active, this_busy, this_recv, this_tx, this_noise
-  this_noise = "?" -- when you first tune to a channel, the noise level isn't filled in yet
+function gather_ath9k(ath9k_interface)
+  local this_data = {}
+  local last_data = data.ath9k[ath9k_interface]
+  this_data.noise = "?" -- when you first tune to a channel, the noise level isn't filled in yet
 
   local wlan_survey = io.popen("iw dev "..ath9k_interface.." survey dump")
 
@@ -89,48 +52,39 @@ function ath9k_led()
       local start_match, end_match, type, ms = string.find(line, "channel (%S+) time:%s+(%d+) ms")
       if type ~= nil then
         if type == "active" then
-          this_active = ms
+          this_data.active = ms
         elseif type == "busy" then
-          this_busy = ms
+          this_data.busy = ms
         elseif type == "receive" then
-          this_recv = ms
+          this_data.recv = ms
         elseif type == "transmit" then
-          this_tx = ms
+          this_data.tx = ms
         end
       end
 
       local start_match, end_match, noise = string.find(line, "noise:%s+(-?%d+) dBm")
       if noise ~= nil then
-        this_noise = noise
+        this_data.noise = noise
       end
     end
   end
   wlan_survey:close()
 
-  if (ath9k_last_active ~= nil) and (this_active ~= nil) then
-    local total_time = this_active - ath9k_last_active
-    local busy_time = this_busy - ath9k_last_busy
-    
-    local pct_busy = busy_time/total_time
-
-    -- 0% = green, 50% = yellow, 100% = red
-    local green = math.floor(math.max(1-pct_busy,0)*255)
-    local red = math.min(math.floor(pct_busy*255),255)
-
-    -- for debugging
-    --print("busy "..busy_time.."ms total "..total_time.."ms "..math.floor(pct_busy*100).."% ("..red.." "..green.." 0)")
-
-    local wififd = io.open("/sys/class/leds/omnia-led\:"..ath9k_led_name.."/color", "w")
-    wififd:write(red.." "..green .." 0")
-    wififd:close()
+  if (last_data ~= nil) and (this_data.active ~= nil) then
+    this_data.total_time = this_data.active - last_data.active
+    this_data.busy_time = this_data.busy - last_data.busy
+    this_data.pct_busy = this_data.busy_time/this_data.total_time
+    debug_print("9k total "..this_data.total_time.." busy "..this_data.busy_time.." "..math.floor(this_data.pct_busy*100).."%")
   end
 
-  ath9k_last_active, ath9k_last_busy, ath9k_last_recv, ath9k_last_tx = this_active, this_busy, this_recv, this_tx
+  data.ath9k[ath9k_interface] = this_data
+
+  return this_data.pct_busy
 end
 
-local ath10k_last_cycle, ath10k_last_rx_clear
-function ath10k_led()
-  local this_cycle, this_rx_clear
+function gather_ath10k(ath10k_phy)
+  local this_data = {}
+  local last_data = data.ath10k[ath10k_phy]
 
   local fw_stats = io.open("/sys/kernel/debug/ieee80211/"..ath10k_phy.."/ath10k/fw_stats","r")
   if fw_stats == nil then
@@ -141,45 +95,157 @@ function ath10k_led()
     local start_match, end_match, type, count = string.find(line, "^%s+(%S.*%S) count%s+(%d+)")
     if type ~= nil then
       if type == "RX clear" then -- "RX clear" they mean "channel busy"
-        this_rx_clear = count
+        this_data.rx_clear = count
       elseif type == "Cycle" then
-        this_cycle = count
+        this_data.cycle = count
       end
     end
   end
   fw_stats:close()
 
-  if ath10k_last_cycle ~= nil then
-    local cdiff, cleardiff
-    if this_cycle < ath10k_last_cycle then -- cycle wrap
-      cdiff = this_cycle - ath10k_last_cycle + 2^31
+  if last_data ~= nil then
+    if this_data.cycle < last_data.cycle then -- cycle wrap
+      this_data.cdiff = this_data.cycle - last_data.cycle + 2^31
       -- all the cycle counters get divided by 2 on cycle wrap for some reason
       -- this happens at some point in the past, so *2 isn't exactly right
-      cleardiff = this_rx_clear*2 - ath10k_last_rx_clear
+      this_data.cleardiff = this_data.rx_clear*2 - last_data.rx_clear
     else
-      cdiff = this_cycle - ath10k_last_cycle
-      cleardiff = this_rx_clear - ath10k_last_rx_clear
+      this_data.cdiff = this_data.cycle - last_data.cycle
+      this_data.cleardiff = this_data.rx_clear - last_data.rx_clear
     end
-    local clearpct = cleardiff / cdiff
-    -- for debugging
-    --print("cycle "..this_cycle.." "..cdiff.." busy "..math.floor(clearpct*100).."%")
-
-    -- 0% = green, 50% = yellow, 100% = red
-    local green = math.floor(math.max(1-clearpct,0)*255)
-    local red = math.min(math.floor(clearpct*255),255)
-
-    local wififd = io.open("/sys/class/leds/omnia-led\:"..ath10k_led_name.."/color", "w")
-    wififd:write(red.." "..green .." 0")
-    wififd:close()
+    this_data.clearpct = this_data.cleardiff / this_data.cdiff
+    debug_print("10k cycle "..this_data.cycle.." "..this_data.cdiff.." clear "..math.floor(this_data.clearpct*100).."%")
   end
 
-  ath10k_last_cycle, ath10k_last_rx_clear = this_cycle, this_rx_clear
+  data.ath10k[ath10k_phy] = this_data
+
+  return this_data.clearpct
+end
+
+function write_led(ledname, r, g, b)
+  local fd = io.open("/sys/class/leds/omnia-led\:"..ledname.."/color", "w")
+  fd:write(r .. " " .. g .. " " .. b)
+  fd:close()
+end
+
+function dualbandwidth_led(ledname, arguments)
+  local interface, limit_in, limit_out = arguments.interface, arguments.limit_in, arguments.limit_out
+
+  local wan_data = data.wan[interface]
+
+  if wan_data == nil then
+    debug_print("interface "..interface.." not in wan data")
+    return
+  end
+
+  if wan_data.bps_in == nil or wan_data.bps_out == nil then
+    debug_print("interface "..interface.." not ready yet")
+    return
+  end
+
+  local pct_in = wan_data.bps_in / limit_in
+  local pct_out = wan_data.bps_out / limit_out
+
+  local red, green, blue
+  if pct_out > 0.5 then
+    blue = math.min(math.floor(pct_out*255),255)
+    green = 0
+    red = 0
+  else
+    green = math.floor(math.max(1-pct_in,0)*255)
+    red = math.min(math.floor(pct_in*255),255)
+    blue = 0
+  end
+
+  debug_print(wan_data.bps_in .."^|v".. wan_data.bps_out .. " (" .. math.floor(pct_in*100) .. "% ^|v " .. math.floor(pct_out*100) .. "% "..red.." "..green.." "..blue..")")
+
+  write_led(ledname, red, green, blue)
+end
+
+function bandwidth_led(ledname,arguments)
+  local interface, direction, limit = arguments.interface, arguments.direction, arguments.limit
+
+  local wan_data = data.wan[interface]
+
+  if wan_data == nil then
+    debug_print("interface "..interface.." not in wan data")
+    return
+  end
+
+  if wan_data.bps_in == nil or wan_data.bps_out == nil then
+    debug_print("interface "..interface.." not ready yet")
+    return
+  end
+
+  local pct
+  if direction == "in" then
+    pct = wan_data.bps_in / limit
+  elseif direction == "out" then
+    pct = wan_data.bps_out / limit
+  end
+
+  -- 0% = green, 50% = yellow, 100% = red
+  local green = math.floor(math.max(1-pct,0)*255)
+  local red = math.min(math.floor(pct*255),255)
+
+  debug_print(wan_data.bps_in .."^/v".. wan_data.bps_out .. " (" .. math.floor(pct*100) .. "% "..red.." "..green .." 0)")
+
+  write_led(ledname, red, green, 0)
+end
+
+function ath9k_led(ledname,arguments)
+  local interface = arguments.interface
+
+  local pct = gather_ath9k(interface)
+
+  if pct == nil then
+    debug_print("ath9k interface "..interface.." nil data")
+    return
+  end
+
+  -- 0% = green, 50% = yellow, 100% = red
+  local green = math.floor(math.max(1-pct,0)*255)
+  local red = math.min(math.floor(pct*255),255)
+
+  write_led(ledname, red, green, 0)
+end
+
+function ath10k_led(ledname,arguments)
+  local phy = arguments.phy
+
+  local pct = gather_ath10k(phy)
+
+  if pct == nil then
+    debug_print("ath10k phy "..phy.." nil data")
+    return
+  end
+
+  -- 0% = green, 50% = yellow, 100% = red
+  local green = math.floor(math.max(1-pct,0)*255)
+  local red = math.min(math.floor(pct*255),255)
+
+  write_led(ledname, red, green, 0)
+end
+
+function setled(led)
+  local colorfunctions = {bandwidth=bandwidth_led, dualbandwidth=dualbandwidth_led, ath9k=ath9k_led, ath10k=ath10k_led}
+
+  if colorfunctions[led.colorfunction] ~= nil then
+    colorfunctions[led.colorfunction](led[".name"],led)
+  else
+    debug_print("colorfunction "..led.colorfunction.." unknown, ignored")
+  end
+end
+
+function gather_data()
+  gather_iface_bandwidth()
 end
 
 while true do
-  wan_led()
-  ath9k_led()
-  ath10k_led()
+  gather_data()
+
+  uci:foreach("omnia-led-colors", "led", setled)
+  debug_print("")
 
   -- sleep for 1 second
   nixio.nanosleep(1)

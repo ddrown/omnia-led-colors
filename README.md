@@ -7,6 +7,15 @@ opkg update
 opkg install git
 git clone git://github.com/ddrown/omnia-led-colors.git
 cd omnia-led-colors
-# Check the settings at the top of omnia-led-colors and change them if needed.
 ./install
+# edit the file /etc/config/omnia-led-colors to set the LEDs
+```
+
+To update an existing install:
+
+```shell
+cd omnia-led-colors
+git pull
+./install
+# edit the file /etc/config/omnia-led-colors to set the LEDs
 ```
