@@ -187,9 +187,9 @@ function bandwidth_led(ledname,arguments)
     pct = wan_data.bps_out / limit
   end
 
-  debug_print(wan_data.bps_in .."^/v".. wan_data.bps_out .. " (" .. math.floor(pct*100) .. "% "..red.." "..green .." 0)")
-
   local red, green, blue = shift_color(nominal, critical, pct)
+
+  debug_print(wan_data.bps_in .."^/v".. wan_data.bps_out .. " (" .. math.floor(pct*100) .. "% "..red.." "..green .." 0)")
 
   write_led(ledname, red, green, blue)
 end
