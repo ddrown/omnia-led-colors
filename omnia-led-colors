@@ -3,6 +3,7 @@
 -- settings are now in /etc/config/omnia-led-colors
 
 local uci = require "luci.model.uci".cursor()
+require "bit"
 require "nixio"
 
 local data = {wan={}, ath9k={}, ath10k={}}
@@ -237,13 +238,13 @@ function shift_color(nominal, critical, pct)
 
   -- bitmagic our way to individual colors
   -- remember: 0xRRGGBB
-  n_red   = bit32.arshift(bit32.band(nominal, tonumber('0xFF0000')), 16)
-  n_green = bit32.arshift(bit32.band(nominal, tonumber('0x00FF00')), 8)
-  n_blue  = bit32.band(nominal, tonumber('0x0000FF'))
+  n_red   = bit.arshift(bit.band(nominal, tonumber('0xFF0000')), 16)
+  n_green = bit.arshift(bit.band(nominal, tonumber('0x00FF00')), 8)
+  n_blue  = bit.band(nominal, tonumber('0x0000FF'))
 
-  c_red   = bit32.arshift(bit32.band(critical, tonumber('0xFF0000')), 16)
-  c_green = bit32.arshift(bit32.band(critical, tonumber('0x00FF00')), 8)
-  c_blue  = bit32.band(critical, tonumber('0x0000FF'))
+  c_red   = bit.arshift(bit.band(critical, tonumber('0xFF0000')), 16)
+  c_green = bit.arshift(bit.band(critical, tonumber('0x00FF00')), 8)
+  c_blue  = bit.band(critical, tonumber('0x0000FF'))
 
   -- actual color is a range between critical and nominal based on the load
   a_red   = math.floor(c_red + ((n_red - c_red) * (1 - pct)))
