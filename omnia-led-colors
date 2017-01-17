@@ -165,6 +165,9 @@ end
 function bandwidth_led(ledname,arguments)
   local interface, direction, limit = arguments.interface, arguments.direction, arguments.limit
 
+  --colors
+  local nominal, critical = (arguments.nominal or tonumber('0x00FF00')), (arguments.critical or tonumber('0xFF0000'))
+
   local wan_data = data.wan[interface]
 
   if wan_data == nil then
@@ -184,17 +187,18 @@ function bandwidth_led(ledname,arguments)
     pct = wan_data.bps_out / limit
   end
 
-  -- 0% = green, 50% = yellow, 100% = red
-  local green = math.floor(math.max(1-pct,0)*255)
-  local red = math.min(math.floor(pct*255),255)
-
   debug_print(wan_data.bps_in .."^/v".. wan_data.bps_out .. " (" .. math.floor(pct*100) .. "% "..red.." "..green .." 0)")
 
-  write_led(ledname, red, green, 0)
+  local red, green, blue = shift_color(nominal, critical, pct)
+
+  write_led(ledname, red, green, blue)
 end
 
 function ath9k_led(ledname,arguments)
   local interface = arguments.interface
+
+  --colors
+  local nominal, critical = (arguments.nominal or tonumber('0x00FF00')), (arguments.critical or tonumber('0xFF0000'))
 
   local pct = gather_ath9k(interface)
 
@@ -203,15 +207,16 @@ function ath9k_led(ledname,arguments)
     return
   end
 
-  -- 0% = green, 50% = yellow, 100% = red
-  local green = math.floor(math.max(1-pct,0)*255)
-  local red = math.min(math.floor(pct*255),255)
+  local red, green, blue = shift_color(nominal, critical, pct)
 
-  write_led(ledname, red, green, 0)
+  write_led(ledname, red, green, blue)
 end
 
 function ath10k_led(ledname,arguments)
   local phy = arguments.phy
+
+  -- colors
+  local nominal, critical = (arguments.nominal or tonumber('0x00FF00')), (arguments.critical or tonumber('0xFF0000'))
 
   local pct = gather_ath10k(phy)
 
@@ -220,11 +225,32 @@ function ath10k_led(ledname,arguments)
     return
   end
 
-  -- 0% = green, 50% = yellow, 100% = red
-  local green = math.floor(math.max(1-pct,0)*255)
-  local red = math.min(math.floor(pct*255),255)
+  local red, green, blue = shift_color(nominal, critical, pct)
 
-  write_led(ledname, red, green, 0)
+  write_led(ledname, red, green, blue)
+end
+
+function shift_color(nominal, critical, pct)
+  local n_red, n_green, n_blue, -- nominal colors
+        c_red, c_green, c_blue, -- critical colors
+        a_red, a_green, a_blue  -- actual colors
+
+  -- bitmagic our way to individual colors
+  -- remember: 0xRRGGBB
+  n_red   = bit32.arshift(bit32.band(nominal, tonumber('0xFF0000')), 16)
+  n_green = bit32.arshift(bit32.band(nominal, tonumber('0x00FF00')), 8)
+  n_blue  = bit32.band(nominal, tonumber('0x0000FF'))
+
+  c_red   = bit32.arshift(bit32.band(critical, tonumber('0xFF0000')), 16)
+  c_green = bit32.arshift(bit32.band(critical, tonumber('0x00FF00')), 8)
+  c_blue  = bit32.band(critical, tonumber('0x0000FF'))
+
+  -- actual color is a range between critical and nominal based on the load
+  a_red   = math.floor(c_red + ((n_red - c_red) * (1 - pct)))
+  a_green = math.floor(c_green + ((n_green - c_green) * (1 - pct)))
+  a_blue  = math.floor(c_blue + ((n_blue - c_blue) * (1 - pct)))
+
+  return {a_red, a_green, a_blue}
 end
 
 function setled(led)
