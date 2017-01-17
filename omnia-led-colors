@@ -166,7 +166,7 @@ function bandwidth_led(ledname,arguments)
   local interface, direction, limit = arguments.interface, arguments.direction, arguments.limit
 
   --colors
-  local nominal, critical = (arguments.nominal or tonumber('0x00FF00')), (arguments.critical or tonumber('0xFF0000'))
+  local nominal, critical = tonumber(arguments.nominal or '0x00FF00'), tonumber(arguments.critical or '0xFF0000')
 
   local wan_data = data.wan[interface]
 
@@ -198,7 +198,7 @@ function ath9k_led(ledname,arguments)
   local interface = arguments.interface
 
   --colors
-  local nominal, critical = (arguments.nominal or tonumber('0x00FF00')), (arguments.critical or tonumber('0xFF0000'))
+  local nominal, critical = tonumber(arguments.nominal or '0x00FF00'), tonumber(arguments.critical or '0xFF0000')
 
   local pct = gather_ath9k(interface)
 
@@ -216,7 +216,7 @@ function ath10k_led(ledname,arguments)
   local phy = arguments.phy
 
   -- colors
-  local nominal, critical = (arguments.nominal or tonumber('0x00FF00')), (arguments.critical or tonumber('0xFF0000'))
+  local nominal, critical = tonumber(arguments.nominal or '0x00FF00'), tonumber(arguments.critical or '0xFF0000')
 
   local pct = gather_ath10k(phy)
 
