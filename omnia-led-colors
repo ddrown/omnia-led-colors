@@ -250,11 +250,16 @@ function shift_color(nominal, critical, pct)
   c_blue  = bit.band(critical, tonumber('0x0000FF'))
 
   -- actual color is a range between critical and nominal based on the load
-  a_red   = math.floor(c_red + ((n_red - c_red) * (1 - pct)))
-  a_green = math.floor(c_green + ((n_green - c_green) * (1 - pct)))
-  a_blue  = math.floor(c_blue + ((n_blue - c_blue) * (1 - pct)))
+  a_red   = interpolate(n_red, c_red, pct)
+  a_green = interpolate(n_green, c_green, pct)
+  a_blue  = interpolate(n_blue, c_blue, pct)
 
   return {a_red, a_green, a_blue}
+end
+
+function interpolate(nominal, critical, pct)
+  pct = math.min(pct, 1)
+  return math.floor((critical * pct) + (nominal * (1 - pct)))
 end
 
 function setled(led)
