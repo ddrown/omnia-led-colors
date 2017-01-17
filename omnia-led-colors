@@ -188,7 +188,8 @@ function bandwidth_led(ledname,arguments)
     pct = wan_data.bps_out / limit
   end
 
-  local red, green, blue = shift_color(nominal, critical, pct)
+  local colors = shift_color(nominal, critical, pct)
+  local red, green, blue = colors[1], colors[2], colors[3]
 
   debug_print(wan_data.bps_in .."^/v".. wan_data.bps_out .. " (" .. math.floor(pct*100) .. "% "..red.." "..green .." 0)")
 
@@ -208,7 +209,8 @@ function ath9k_led(ledname,arguments)
     return
   end
 
-  local red, green, blue = shift_color(nominal, critical, pct)
+  local colors = shift_color(nominal, critical, pct)
+  local red, green, blue = colors[1], colors[2], colors[3]
 
   write_led(ledname, red, green, blue)
 end
@@ -226,7 +228,8 @@ function ath10k_led(ledname,arguments)
     return
   end
 
-  local red, green, blue = shift_color(nominal, critical, pct)
+  local colors = shift_color(nominal, critical, pct)
+  local red, green, blue = colors[1], colors[2], colors[3]
 
   write_led(ledname, red, green, blue)
 end
