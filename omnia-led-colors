@@ -70,7 +70,7 @@ function gather_ath9k(ath9k_interface)
   end
   wlan_survey:close()
 
-  if (last_data ~= nil) and (this_data.active ~= nil) then
+  if (last_data ~= nil) and (last_data.active ~= nil) and (this_data.active ~= nil) then
     this_data.total_time = this_data.active - last_data.active
     this_data.busy_time = this_data.busy - last_data.busy
     this_data.pct_busy = this_data.busy_time/this_data.total_time
