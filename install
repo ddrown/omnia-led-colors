@@ -5,7 +5,7 @@ chmod 755 /usr/sbin/omnia-led-colors
 cp omnia-led-colors.init.d /etc/init.d/omnia-led-colors
 chmod 755 /etc/init.d/omnia-led-colors
 
-[ -f /etc/config/omnia-led-colors ] || cp omnia-led-colors.config /etc/config/omnia-led-colors
+[ /etc/config/omnia-led-colors -nt omnia-led-colors.config ] || cp omnia-led-colors.config /etc/config/omnia-led-colors
 
 /etc/init.d/omnia-led-colors enable
 /etc/init.d/omnia-led-colors start

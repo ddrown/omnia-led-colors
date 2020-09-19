@@ -3,6 +3,7 @@
 -- settings are now in /etc/config/omnia-led-colors
 
 local uci = require "luci.model.uci".cursor()
+require "bit"
 require "nixio"
 
 local data = {wan={}, ath9k={}, ath10k={}}
@@ -165,6 +166,9 @@ end
 function bandwidth_led(ledname,arguments)
   local interface, direction, limit = arguments.interface, arguments.direction, arguments.limit
 
+  --colors
+  local nominal, critical = tonumber(arguments.nominal or '0x00FF00'), tonumber(arguments.critical or '0xFF0000')
+
   local wan_data = data.wan[interface]
 
   if wan_data == nil then
@@ -184,17 +188,19 @@ function bandwidth_led(ledname,arguments)
     pct = wan_data.bps_out / limit
   end
 
-  -- 0% = green, 50% = yellow, 100% = red
-  local green = math.floor(math.max(1-pct,0)*255)
-  local red = math.min(math.floor(pct*255),255)
+  local colors = shift_color(nominal, critical, pct)
+  local red, green, blue = colors[1], colors[2], colors[3]
 
-  debug_print(wan_data.bps_in .."^/v".. wan_data.bps_out .. " (" .. math.floor(pct*100) .. "% "..red.." "..green .." 0)")
+  debug_print(wan_data.bps_in .."^/v".. wan_data.bps_out .. " (" .. math.floor(pct*100) .. "% "..red.." "..green .." "..blue..")")
 
-  write_led(ledname, red, green, 0)
+  write_led(ledname, red, green, blue)
 end
 
 function ath9k_led(ledname,arguments)
   local interface = arguments.interface
+
+  --colors
+  local nominal, critical = tonumber(arguments.nominal or '0x00FF00'), tonumber(arguments.critical or '0xFF0000')
 
   local pct = gather_ath9k(interface)
 
@@ -203,15 +209,17 @@ function ath9k_led(ledname,arguments)
     return
   end
 
-  -- 0% = green, 50% = yellow, 100% = red
-  local green = math.floor(math.max(1-pct,0)*255)
-  local red = math.min(math.floor(pct*255),255)
+  local colors = shift_color(nominal, critical, pct)
+  local red, green, blue = colors[1], colors[2], colors[3]
 
-  write_led(ledname, red, green, 0)
+  write_led(ledname, red, green, blue)
 end
 
 function ath10k_led(ledname,arguments)
   local phy = arguments.phy
+
+  -- colors
+  local nominal, critical = tonumber(arguments.nominal or '0x00FF00'), tonumber(arguments.critical or '0xFF0000')
 
   local pct = gather_ath10k(phy)
 
@@ -220,11 +228,38 @@ function ath10k_led(ledname,arguments)
     return
   end
 
-  -- 0% = green, 50% = yellow, 100% = red
-  local green = math.floor(math.max(1-pct,0)*255)
-  local red = math.min(math.floor(pct*255),255)
+  local colors = shift_color(nominal, critical, pct)
+  local red, green, blue = colors[1], colors[2], colors[3]
 
-  write_led(ledname, red, green, 0)
+  write_led(ledname, red, green, blue)
+end
+
+function shift_color(nominal, critical, pct)
+  local n_red, n_green, n_blue, -- nominal colors
+        c_red, c_green, c_blue, -- critical colors
+        a_red, a_green, a_blue  -- actual colors
+
+  -- bitmagic our way to individual colors
+  -- remember: 0xRRGGBB
+  n_red   = bit.arshift(bit.band(nominal, tonumber('0xFF0000')), 16)
+  n_green = bit.arshift(bit.band(nominal, tonumber('0x00FF00')), 8)
+  n_blue  = bit.band(nominal, tonumber('0x0000FF'))
+
+  c_red   = bit.arshift(bit.band(critical, tonumber('0xFF0000')), 16)
+  c_green = bit.arshift(bit.band(critical, tonumber('0x00FF00')), 8)
+  c_blue  = bit.band(critical, tonumber('0x0000FF'))
+
+  -- actual color is a range between critical and nominal based on the load
+  a_red   = interpolate(n_red, c_red, pct)
+  a_green = interpolate(n_green, c_green, pct)
+  a_blue  = interpolate(n_blue, c_blue, pct)
+
+  return {a_red, a_green, a_blue}
+end
+
+function interpolate(nominal, critical, pct)
+  pct = math.min(pct, 1)
+  return math.floor((critical * pct) + (nominal * (1 - pct)))
 end
 
 function setled(led)
