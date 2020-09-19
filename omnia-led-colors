@@ -132,6 +132,9 @@ end
 function dualbandwidth_led(ledname, arguments)
   local interface, limit_in, limit_out = arguments.interface, arguments.limit_in, arguments.limit_out
 
+  --colors
+  local nominal, critical_in, critical_out = tonumber(arguments.nominal or '0x00FF00'), tonumber(arguments.critical_in or '0xFF0000'), tonumber(arguments.critical_out or '0x0000FF')
+
   local wan_data = data.wan[interface]
 
   if wan_data == nil then
@@ -147,20 +150,18 @@ function dualbandwidth_led(ledname, arguments)
   local pct_in = wan_data.bps_in / limit_in
   local pct_out = wan_data.bps_out / limit_out
 
-  local red, green, blue
   if pct_out > 0.5 then
-    blue = math.min(math.floor(pct_out*255),255)
-    green = 0
-    red = 0
+    local colors_out = shift_color(nominal, critical_out, pct_out)
+    local red, green, blue = colors_out[1], colors_out[2], colors_out[3]
+    debug_print(wan_data.bps_in .."^|v".. wan_data.bps_out .. " (" .. math.floor(pct_in*100) .. "% ^|v " .. math.floor(pct_out*100) .. "% "..red.." "..green.." "..blue..")")
+    write_led(ledname, red, green, blue)
   else
-    green = math.floor(math.max(1-pct_in,0)*255)
-    red = math.min(math.floor(pct_in*255),255)
-    blue = 0
+    local colors_in = shift_color(nominal, critical_in, pct_in)
+    local red, green, blue = colors_in[1], colors_in[2], colors_in[3]
+    debug_print(wan_data.bps_in .."^|v".. wan_data.bps_out .. " (" .. math.floor(pct_in*100) .. "% ^|v " .. math.floor(pct_out*100) .. "% "..red.." "..green.." "..blue..")")
+    write_led(ledname, red, green, blue)
   end
 
-  debug_print(wan_data.bps_in .."^|v".. wan_data.bps_out .. " (" .. math.floor(pct_in*100) .. "% ^|v " .. math.floor(pct_out*100) .. "% "..red.." "..green.." "..blue..")")
-
-  write_led(ledname, red, green, blue)
 end
 
 function bandwidth_led(ledname,arguments)
