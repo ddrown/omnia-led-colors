@@ -10,7 +10,7 @@ local data = {wan={}, ath9k={}, ath10k={}}
 
 function debug_print(s)
   -- uncomment this to print debug messages
-  --print(s)
+  -- print(s)
 end
 
 function gather_iface_bandwidth()
@@ -39,7 +39,7 @@ function gather_ath9k(ath9k_interface)
   local last_data = data.ath9k[ath9k_interface]
   this_data.noise = "?" -- when you first tune to a channel, the noise level isn't filled in yet
 
-  local wlan_survey = io.popen("iw dev "..ath9k_interface.." survey dump")
+  local wlan_survey = io.popen("iw dev "..ath9k_interface.." survey dump 2>&1")
 
   local in_freq_use = 0
   for line in wlan_survey:lines() do
@@ -47,6 +47,9 @@ function gather_ath9k(ath9k_interface)
       in_freq_use = 1
     elseif string.find(line, "Survey data from ") ~= nil then
       in_freq_use = 0
+    elseif string.find(line, "Failed to connect to generic netlink") ~= nil then
+      debug_print("Can't run iw dev survey dump")
+      return 0
     end
 
     if in_freq_use == 1 then
