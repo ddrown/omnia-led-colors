@@ -127,7 +127,10 @@ function gather_ath10k(ath10k_phy)
 end
 
 function write_led(ledname, r, g, b)
-  local fd = io.open("/sys/class/leds/omnia-led\:"..ledname.."/color", "w")
+  local ledalias = ledname:gsub("([a-z]+)(%d?)", "%1-%2"):gsub("-$", "")
+  local path = "/sys/class/leds/rgb:"..ledalias.."/multi_intensity"
+  debug_print("write led path: " .. path)
+  local fd = io.open(path, "w")
   fd:write(r .. " " .. g .. " " .. b)
   fd:close()
 end
